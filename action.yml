@@ -4,6 +4,9 @@ inputs:
   pullwise-api-key: 
     description: 'PullWise API Key'
     required: true
+  github-token:
+    description: 'Github token',
+    required: true
 runs:
   using: "composite"
   steps:
@@ -28,7 +31,6 @@ runs:
       shell: bash
 
     - name: Wait for Review finish and get comments
-      timeout-minutes: 3
       run: |
         until [ \
           "
@@ -48,14 +50,14 @@ runs:
       with:
         comments: |
           ${{ env.REVIEW_COMMENTS }}
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        repo-token: ${{ inputs.github-token }}
         repo-token-user-login: 'PullWise[bot]'
 
     - name: Confirm Comments Posted
       run: |
         curl -X PATCH "https://www.pullwise.io/api/v1/pull_request_reviews/${{ env.REVIEW_ID }}" \
         -H 'Content-Type: application/json' \
-        -H "Authorization: Bearer ${{ env.API_KEY }}"
+        -H "Authorization: Bearer ${{ inputs.pullwise-api-key }}"
       shell: bash
 
 
