@@ -1,0 +1,63 @@
+name: 'Hello World'
+description: 'Greet someone'
+inputs:
+  pullwise-api-key: 
+    description: 'PullWise API Key'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - run: |
+        curl -X GET "https://raw.githubusercontent.com/ElectricRCAircraftGuy/eRCaGuy_dotfiles/master/useful_scripts/git-diffn.sh" > diffn.sh
+        chmod +x diffn.sh
+        FILES=$(./diffn.sh ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2};?)?)?[mGK]//g" | base64 -w 0)
+        echo $FILES
+        echo "{ \"repository\": \"${{ github.repository }}\", \"pull_request\": ${{ github.event.number }}, \"files\": \"$FILES\", \"commit\": \"${{ github.sha }}\" }"
+        jq -n --arg diff "$FILES" \
+          '{repository: "${{ github.repository }}", pull_request: ${{ github.event.number }}, files: "$diff", commit: "${{ github.sha }}"}' > request.json
+        curl -X POST https://www.pullwise.io/api/v1/pull_request_reviews \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${{ inputs.pullwise-api-key }}" \
+        -d "{ \"repository\": \"${{ github.repository }}\", \"pull_request\": ${{ github.event.number }}, \"files\": \"$FILES\", \"commit\": \"${{ github.sha }}\" }" > review_id.json
+        REVIEW_ID=$(cat review_id.json)
+        echo "REVIEW_ID=$REVIEW_ID" >> $GITHUB_ENV
+      shell: bash
+    - name: Display review response
+      run: |
+        echo "${{ env.REVIEW_ID }}"
+      shell: bash
+
+    - name: Wait for Review finish and get comments
+      timeout-minutes: 3
+      run: |
+        until [ \
+          "
+            $(curl -s -w '%{http_code}' -H "Authorization: Bearer ${{ inputs.pullwise-api-key }}" -o /dev/null "https://www.pullwise.io/api/v1/pull_request_reviews/${{ env.REVIEW_ID }}")" \
+          -eq 200 ]
+        do
+          sleep 2
+        done
+        curl -X GET "https://www.pullwise.io/api/v1/pull_request_reviews/${{ env.REVIEW_ID }}" \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer ${{ inputs.pullwise-api-key }}" > comments.json
+        REVIEW_COMMENTS=$(cat comments.json)
+        echo "REVIEW_COMMENTS=$REVIEW_COMMENTS" >> $GITHUB_ENV
+      shell: bash
+
+    - uses: nbaztec/add-pr-review-comment@v1
+      with:
+        comments: |
+          ${{ env.REVIEW_COMMENTS }}
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        repo-token-user-login: 'PullWise[bot]'
+
+    - name: Confirm Comments Posted
+      run: |
+        curl -X PATCH "https://www.pullwise.io/api/v1/pull_request_reviews/${{ env.REVIEW_ID }}" \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer ${{ env.API_KEY }}"
+      shell: bash
+
+
+
+      
